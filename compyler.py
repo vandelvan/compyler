@@ -162,6 +162,9 @@ with open("asms/P7.asm", "r") as asm:
     with open("lsts/P7.lst", "w") as lst:
         for line in out:
             for part in line:
+                if part.__contains__("0x"):
+                    part = part.split("0x")[1]
+                    part = part.zfill(4)
                 lst.write(part+"\t")
             lst.write("\n")
 
