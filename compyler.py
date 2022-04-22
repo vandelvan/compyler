@@ -1,9 +1,84 @@
 import csv
 
 
+def toInt(op):
+    if op.isnumeric():
+        return op
+    if op.__contains__("$"):
+        return int(op.split("$")[1], 16)
+    if op.__contains__("@"):
+        return int(op.split("@")[1], 8)
+    if op.__contains__("%"):
+        return int(op.split("%")[1], 2)
+
+
+def idxgetn(op):
+    # toma el operador que no es rr
+    n = op.split(",")[0]
+    if n == "":
+        n = 0
+    return int(n)
+
+
+def idxtype(op):
+    # Si dentro del operador lleva rr
+    if op.__contains__("X") or op.__contains__("Y") or op.__contains__("SP") or op.__contains__("PC"):
+        # toma el operador que no es rr
+        n = idxgetn(op)
+        # identifica el numero de formula
+        if op.__contains__("["):
+            return 3
+        if n >= -16 and n <= 15:
+            return 1
+        else:
+            return 2
+    else:
+        return 0
+
+
+def idxcop(nformula, op):
+    cop = ""
+    rr = ""
+    n = idxgetn(op)
+    z = "0"
+    if n > 255 or n < 256:
+        z = "1"
+    # signo 0 = positivo 1 = negativo
+    s = "0"
+    if n < 0:
+        s = "1"
+        max = 16
+        fill = 4
+        if nformula == 2:
+            if z == 1:
+                max = 65536
+                fill = 16
+            else:
+                max = 256
+                fill = 8
+        n = (max+n)
+        n = str(bin(n).replace("0b", "")).replace("-","").zfill(fill)
+    else:
+        n = str(bin(n).replace("0b", ""))
+    if op.__contains__("X"):
+        rr = "00"
+    elif op.__contains__("Y"):
+        rr = "01"
+    elif op.__contains__("SP"):
+        rr = "10"
+    elif op.__contains__("PC"):
+        rr = "11"
+    if nformula == 1:
+        cop = rr+"0"+s+n
+    elif nformula == 2:
+        cop = "111"+rr+"0"+z+s+n
+    return int(cop, 2)
+
+
 def searchinst(mnem, imm, op):
     loc = 0
     hexop = int("0x0", 16)
+    idxType = idxtype(op)
     if len(op) > 1:
         hexstr = "".join([n for n in op if n.isdigit()])
         if op.__contains__("$"):
@@ -23,7 +98,7 @@ def searchinst(mnem, imm, op):
                 if inst[1] == "INH" and hexop > 0:
                     return ["FDR", "", inst[2]]
                 # encuentra el modo de operacion correcto
-                if imm and inst[1] != "IMM":
+                if (imm and inst[1] != "IMM") or (idxType != 0 and inst[1] != "IDX"):
                     continue
                 elif hexop > 0xFF and inst[1] != "EXT" and not imm:
                     continue
@@ -36,7 +111,7 @@ def searchinst(mnem, imm, op):
         return ["No encontrado", "", loc]
 
 
-with open("asms/P7.asm", "r") as asm:
+with open("asms/P11.asm", "r") as asm:
     out = []
     outcl = []
     loc = 0
@@ -44,6 +119,8 @@ with open("asms/P7.asm", "r") as asm:
     for line in asm:
         # ignora comentarios
         line = line.split(";")[0]
+        if line == "":
+            continue
         instruccion = line.split()
         imm = False
         tag = ""
@@ -135,47 +212,62 @@ with open("asms/P7.asm", "r") as asm:
             continue
         inst = searchinst(instruccion[0], imm, "0")
         if inst[0] == "No encontrado":
-            vars.append({instruccion[0]: instruccion[1]})
+            vars.append({instruccion.pop(0): str(instruccion)})
+            continue
         if line.__contains__("END"):
             instruccion.insert(0, str(loc))
             out.append(instruccion)
             outcl.append([str(loc), " ".join(instruccion), ""])
             break
         op = instruccion[1] if len(instruccion) > 1 else ""
+        idxType = idxtype(op)
         if line.__contains__("#"):
             imm = True
             op = op.split("#")[1]
+        if idxType == 0:
+            op = toInt(op)
         for i in vars:
             if op in i:
-                op = int(i[op])
+                op = toInt(i[op])
         inst = searchinst(instruccion[0], imm, op)
         if inst[0] == "No encontrado":
-            vars.append({instruccion[0]: instruccion[1]})
+            vars.append({instruccion.pop(0): str(instruccion)})
+            continue
         inst.insert(0, str(loc))
-        outcl.append([str(loc), " ".join(instruccion), hex(int(op))])
+        if idxType != 0:
+            op = idxcop(idxType, op)
+        if op == "":
+            op = "0"
+        outcl.append([str(loc), " ".join(instruccion), inst[4],hex(int(op))])
         loc = hex(int(loc, 16)+int(inst[3] if len(inst) > 2 else 0, 16))
         if inst[1] != "FDR":
             inst.pop()
             inst.pop()
         out.append(inst)
 
-    with open("lsts/P7.lst", "w") as lst:
+    with open("lsts/P11.lst", "w") as lst:
         for line in out:
             for part in line:
                 if part.__contains__("0x"):
-                    part = part.split("0x")[1]
+                    part = part.replace("0x", "")
                     part = part.zfill(4)
                 lst.write(part+"\t")
             lst.write("\n")
 
-    with open("contlocs/P7.contloc", "w") as contloc:
+    with open("contlocs/P11.contloc", "w") as contloc:
         contloc.write("contloc\tLinea de programa\tcop\n")
         for line in outcl:
             for part in line:
+                if part.__contains__("0x"):
+                    part = part.replace("0x", "")
+                    if len(part) > 2:
+                        part = part.zfill(4)
+                    else:
+                        part = part.zfill(2)
                 contloc.write(part+"\t\t\t")
             contloc.write("\n")
 
-    with open("tabsims/P7.tabsim", "w") as tabsim:
+    with open("tabsims/P11.tabsim", "w") as tabsim:
         for line in vars:
             for i in line:
                 tabsim.write(i+": "+line[i])
