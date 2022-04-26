@@ -1,2 +1,3 @@
+VAR2: 0x2
 PUERTA: $1000
-FIN: ['END']
+FIN: 0x4014
