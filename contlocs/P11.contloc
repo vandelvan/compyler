@@ -1,17 +1,17 @@
 contloc	Linea de programa	cop
 0000			START						
-0000			ABA			1806						
+0000			ABA			1806			0			
 0002			VAR2 ADCA #@30			 			
 0004			ORG $4000						
-4000			ABA			1806						
+4000			ABA			1806			0			
 4002			PUERTA EQU $1000						
 4002			ADDD 1,X			E3			01			
 4004			ADDD 2,X			E3			02			
 4006			ADDD -2,X			E3			1e			
 4008			ADDD -16,PC			E3			d0			
-400a			BNE VAR2			26			00			
-400c			BNE PUERTA			26			00			
-400e			BNE FIN			26			00			
+400a			BNE VAR2			26			f6			
+400c			BNE PUERTA			26			FDR			
+400e			BNE FIN			26			FDR			
 4010			ADDD 200,SP			E3			f2c8			
 4012			ADDD -200,SP			E3			f338			
-4014			FIN END			 			
+4014			4014 FIN END						

@@ -74,6 +74,20 @@ def idxcop(nformula, op):
         cop = "111"+rr+"0"+z+s+n
     return int(cop, 2)
 
+def relcop(z,op,loc):
+    pos = True
+    cop=int("0x"+op,16)-int(loc,16)
+    if cop < 0:
+        pos = False
+    aux=hex((cop + (1 << 64)) % (1 << 64))
+    aux = int("0x"+aux[-2:],16)
+    if not pos and (aux < 0x80 or aux > 0xFF):
+        cop = "FDR"
+    elif pos and (aux < 0x0 or aux > 0x7F):
+        cop = "FDR"
+    else:
+        cop = aux
+    return cop
 
 def searchinst(mnem, imm, op):
     if op == None:
@@ -84,7 +98,7 @@ def searchinst(mnem, imm, op):
     if len(op) > 1:
         hexstr = "".join([n for n in op if n.isdigit()])
         if op.__contains__("$"):
-            hexop = int(hexstr, 16)
+            hexop = int(hexstr,16)
         else:
             hexop = int(hexstr)
     with open("tabcop.csv") as tabcop:
@@ -102,10 +116,10 @@ def searchinst(mnem, imm, op):
                 # encuentra el modo de operacion correcto
                 if (imm and inst[1] != "IMM") or (idxType != 0 and inst[1] != "IDX"):
                     continue
-                elif hexop > 0xFF and inst[1] != "EXT" and not imm:
+                elif hexop > 0xFF and inst[1] != "EXT" and not imm and inst[1] != "REL":
                     continue
                 else:
-                    if hexop < 0x0 or (hexop > 0xFF**(int(inst[2])-1) and inst[1] != "EXT"):
+                    if hexop < 0x0 or (hexop > 0xFF**(int(inst[2])-1) and inst[1] != "EXT" and inst[1] != "REL"):
                         return ["FDR", "", inst[2]]
                     if inst[1] == "INH":
                         op = ""
@@ -203,7 +217,7 @@ def paso1():
                 op = toInt(op)
             inst = searchinst(instruccion[0], imm, op)
             if inst[0] == "No encontrado":
-                vars.append({instruccion.pop(0): prevloc})
+                vars.append({instruccion.pop(0): prevloc.replace("0x","$")})
                 if len(instruccion)>1:
                     op = instruccion[1] if len(instruccion) > 1 else ""
                     idxType = idxtype(op)
@@ -320,12 +334,6 @@ def paso2():
                 outcl.append([str(locs[i]), " ".join(instruccion), " ".join(ops)])
                 out.append(instruccion)
                 continue
-            inst = searchinst(instruccion[0], imm, "0")
-            if inst[0] == "No encontrado":
-                outcl.append([str(locs[i]), " ".join(instruccion), " "])
-                instruccion.insert(0, str(locs[i]))
-                out.append(instruccion)
-                continue
             if line.__contains__("END"):
                 instruccion.insert(0, str(locs[i]))
                 out.append(instruccion)
@@ -333,21 +341,29 @@ def paso2():
                 break
             op = instruccion[1] if len(instruccion) > 1 else ""
             idxType = idxtype(op)
-            if line.__contains__("#"):
+            if op.__contains__("#"):
                 imm = True
                 op = op.split("#")[1]
-            if idxType == 0:
-                op = toInt(op)
             for v in vars:
                 if op in v:
-                    op = toInt(v[op])
+                    op = v[op]
+                    break
+            if idxType == 0:
+                op = toInt(op)
             inst = searchinst(instruccion[0], imm, op)
+            if inst[0] == "No encontrado":
+                outcl.append([str(locs[i]), " ".join(instruccion), " "])
+                instruccion.insert(0, str(locs[i]))
+                out.append(instruccion)
+                continue
             inst.insert(0, str(locs[i]))
             if idxType != 0:
                 op = idxcop(idxType, op)
+            if inst[2].__contains__("REL"):
+                op = relcop(8,op,locs[i+1])
             if op == "" or op == None:
                 op = "0"
-            outcl.append([str(locs[i]), " ".join(instruccion), inst[4],hex(int(op)) if not inst[2].__contains__("INH") else ""])
+            outcl.append([str(locs[i]), " ".join(instruccion), inst[4],hex(int(op)) if not inst[2].__contains__("INH") and str(op).isnumeric() else op])
             if inst[1] != "FDR":
                 inst.pop()
                 inst.pop()
