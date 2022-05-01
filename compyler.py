@@ -15,23 +15,32 @@ def toInt(op):
 def idxgetn(op):
     # toma el operador que no es rr
     n = op.split(",")[0]
-    if n == "":
-        n = 0
+    n = n.replace("[","")
+    if not n.lstrip("-").isnumeric():
+        n = -123456789
     return int(n)
 
 
 def idxtype(op):
     # Si dentro del operador lleva rr
     if op.__contains__("X") or op.__contains__("Y") or op.__contains__("SP") or op.__contains__("PC"):
+        # identifica el numero de formula
+        if (op.__contains__("A") or op.__contains__("B") or op.__contains__("D")) and not op.__contains__("["):
+            return 5
+        if op.__contains__("["):
+            if op.__contains__("D"):
+                return 6
+            elif op.split(",")[0].replace("[","").lstrip("-").isnumeric():
+                return 3
         # toma el operador que no es rr
         n = idxgetn(op)
-        # identifica el numero de formula
-        if op.__contains__("["):
-            return 3
+        if n ==  -123456789:
+            return -1
         if n >= -16 and n <= 15:
             return 1
-        else:
+        elif n < -16 or n > 15:
             return 2
+        return -1
     else:
         return 0
 
@@ -39,27 +48,30 @@ def idxtype(op):
 def idxcop(nformula, op):
     cop = ""
     rr = ""
+    aa = ""
     n = idxgetn(op)
     z = "0"
     if n > 255 or n < 256:
         z = "1"
     # signo 0 = positivo 1 = negativo
     s = "0"
+    max = 16
+    fill = 4
+    if nformula == 2:
+        if z == 1:
+            max = 65536
+            fill = 16
+        else:
+            max = 256
+            fill = 8
+    elif nformula == 3:
+        fill = 16
     if n < 0:
         s = "1"
-        max = 16
-        fill = 4
-        if nformula == 2:
-            if z == 1:
-                max = 65536
-                fill = 16
-            else:
-                max = 256
-                fill = 8
         n = (max+n)
         n = str(bin(n).replace("0b", "")).replace("-","").zfill(fill)
     else:
-        n = str(bin(n).replace("0b", ""))
+        n = str(bin(n).replace("0b", "")).zfill(fill)
     if op.__contains__("X"):
         rr = "00"
     elif op.__contains__("Y"):
@@ -68,10 +80,22 @@ def idxcop(nformula, op):
         rr = "10"
     elif op.__contains__("PC"):
         rr = "11"
+    if op.__contains__("A"):
+        aa = "00"
+    elif op.__contains__("B"):
+        aa = "01"
+    elif op.__contains__("D"):
+        aa = "10"
     if nformula == 1:
         cop = rr+"0"+s+n
     elif nformula == 2:
         cop = "111"+rr+"0"+z+s+n
+    elif nformula == 3:
+        cop = "111"+rr+"011"+n
+    elif nformula == 5:
+        cop = "111"+rr+"1"+aa
+    elif nformula == 6:
+        cop = "111"+rr+"111"
     return int(cop, 2)
 
 def relcop(z,op,loc):
@@ -97,6 +121,7 @@ def searchinst(mnem, imm, op):
     hexop = int("0x0", 16)
     if len(op) > 1:
         hexstr = "".join([n for n in op if n.isdigit()])
+        if hexstr == "": hexstr = "0"
         if op.__contains__("$"):
             hexop = int(hexstr,16)
         else:
@@ -112,15 +137,15 @@ def searchinst(mnem, imm, op):
             if inst[0] == mnem:
                 loc = inst[2]
                 if inst[1] == "INH" and hexop > 0:
-                    return ["FDR", "", inst[2]]
+                    return ["FDR", "", inst[2], ""]
                 # encuentra el modo de operacion correcto
                 if (imm and inst[1] != "IMM") or (idxType != 0 and inst[1] != "IDX"):
                     continue
-                elif hexop > 0xFF and inst[1] != "EXT" and not imm and inst[1] != "REL":
+                elif hexop > 0xFF and inst[1] != "EXT" and not imm and inst[1] != "REL" and idxType != 3 and idxType != 2:
                     continue
                 else:
-                    if hexop < 0x0 or (hexop > 0xFF**(int(inst[2])-1) and inst[1] != "EXT" and inst[1] != "REL"):
-                        return ["FDR", "", inst[2]]
+                    if hexop < 0x0 or (hexop > 0xFF**(int(inst[2])-1) and inst[1] != "EXT" and inst[1] != "REL" and idxType != 3 and idxType != 2) or idxType == -1 or (idxType == 3 and idxgetn(op) < 0):
+                        return ["FDR", "", inst[2], ""]
                     if inst[1] == "INH":
                         op = ""
                         hexop = ""
@@ -133,7 +158,7 @@ locs = ["0x0"]
 vars = [] 
 def paso1():
     i = 0
-    with open("asms/P11.asm", "r") as asm:
+    with open("asms/P13.asm", "r") as asm:
         for line in asm:
             i+=1
             if len(locs) < i:
@@ -224,15 +249,17 @@ def paso1():
                     if op.__contains__("#"):
                         imm = True
                         op = op.replace("#","")
-                    if idxType == 0:
+                    if idxType == 0 and idxType != -1:
                         op = toInt(op)
                     inst = searchinst(instruccion[0], imm, op)
                     if inst[0] == "No encontrado":
                         continue
                 else:                    
                     continue
-            if idxType != 0:
+            if idxType != 0 and idxType != -1:
                 op = idxcop(idxType, op)
+            if inst[1] == "FDR":
+                op = "FDR"
             if op == "" or op == None:
                 op = "0"
             locs.append(hex(int(prevloc, 16)+int(inst[2] if len(inst) > 2 else 0, 16)))
@@ -244,7 +271,7 @@ def paso2():
     out = []
     outcl = []
     i = -1
-    with open("asms/P11.asm", "r") as asm:
+    with open("asms/P13.asm", "r") as asm:
         for line in asm:
             i+=1
             # ignora comentarios
@@ -357,8 +384,10 @@ def paso2():
                 out.append(instruccion)
                 continue
             inst.insert(0, str(locs[i]))
-            if idxType != 0:
+            if idxType != 0 and idxType != -1:
                 op = idxcop(idxType, op)
+            if inst[1] == "FDR":
+                op = "FDR"
             if inst[2].__contains__("REL"):
                 op = relcop(8,op,locs[i+1])
             if op == "" or op == None:
@@ -369,7 +398,7 @@ def paso2():
                 inst.pop()
             out.append(inst)
 
-        with open("lsts/P11.lst", "w") as lst:
+        with open("lsts/P13.lst", "w") as lst:
             for line in out:
                 for part in line:
                     if part.__contains__("0x"):
@@ -378,7 +407,7 @@ def paso2():
                     lst.write(part+"\t")
                 lst.write("\n")
 
-        with open("contlocs/P11.contloc", "w") as contloc:
+        with open("contlocs/P13.contloc", "w") as contloc:
             contloc.write("contloc\tLinea de programa\tcop\n")
             for line in outcl:
                 for part in line:
@@ -391,7 +420,7 @@ def paso2():
                     contloc.write(part+"\t\t\t")
                 contloc.write("\n")
 
-        with open("tabsims/P11.tabsim", "w") as tabsim:
+        with open("tabsims/P13.tabsim", "w") as tabsim:
             for line in vars:
                 for i in line:
                     tabsim.write(i+": "+line[i])
